@@ -3,19 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Unencoded-Digest 测试</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 1rem; }
-        h1 { font-size: 1.5rem; }
-        #output { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 8px; }
-        .pass { color: green; }
-        .fail { color: red; }
-    </style>
+    <title>Unencoded-Digest 精确测试</title>
+    <style>/* 同上，略 */</style>
 </head>
 <body>
-    <h1>检测浏览器是否已采用 <code>Unencoded-Digest</code></h1>
+    <h1>检测 Unencoded-Digest</h1>
     <div id="output">正在运行测试...</div>
-
     <script>
         (async function() {
             const output = document.getElementById('output');
@@ -26,82 +19,56 @@
                 output.appendChild(line);
             }
 
-            const correctDigest = 'sha-256=:uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=:'; // "hello world" 的正确哈希
-            const wrongDigest   = 'sha-256=:2jmj7l5rSw0yVb/vlWAYkK/YBwk=:';             // 空字符串的哈希（错误）
-
-            // Service Worker 脚本（内联）
-            const swScript = `
-                self.addEventListener('fetch', event => {
-                    const url = new URL(event.request.url);
-                    if (!url.pathname.includes('/special-test')) return;
-
-                    const type = url.searchParams.get('type');
-                    const responseBody = "hello world";
-                    let headers = { 'Content-Type': 'text/plain' };
-
-                    if (type === 'unencoded-match') {
-                        headers['Unencoded-Digest'] = '${correctDigest}';
-                    } else if (type === 'unencoded-mismatch') {
-                        headers['Unencoded-Digest'] = '${wrongDigest}';
-                    } else if (type === 'identity-match') {
-                        headers['Identity-Digest'] = '${correctDigest}';
-                    } else if (type === 'identity-mismatch') {
-                        headers['Identity-Digest'] = '${wrongDigest}';
-                    } else if (type === 'none') {
-                        // 无头
-                    }
-
-                    event.respondWith(new Response(responseBody, { headers }));
-                });
-            `;
-
-			// 注册独立的 sw.js 文件
-			try {
-				const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
-				log('✅ Service Worker 注册成功，等待激活...');
-				await navigator.serviceWorker.ready;
-				log('✅ Service Worker 已激活，开始测试。\n');
-			} catch (e) {
-				log('❌ Service Worker 注册失败: ' + e.message, 'fail');
-				log('请确保 sw.js 文件存在于当前目录，且页面通过 HTTPS 访问。', 'fail');
-				return;
-			}
+            try {
+                const registration = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+                log('✅ Service Worker 注册成功');
+                await navigator.serviceWorker.ready;
+                log('✅ Service Worker 已激活\n');
+            } catch (e) {
+                log('❌ Service Worker 注册失败: ' + e.message, 'fail');
+                log('请确保 sw.js 存在且页面通过 HTTPS 访问。', 'fail');
+                return;
+            }
 
             async function testFetch(type, shouldPass) {
                 const url = './special-test?type=' + type;
                 try {
                     const res = await fetch(url);
+                    const unencoded = res.headers.get('Unencoded-Digest');
+                    const identity = res.headers.get('Identity-Digest');
+                    log(`🔍 ${type} 头: Unencoded-Digest=${unencoded}, Identity-Digest=${identity}`);
+
                     if (res.ok) {
                         const text = await res.text();
                         if (shouldPass) {
-                            log(`✅ ${type}: 成功（符合预期）`, 'pass');
+                            log(`✅ ${type}: 成功`, 'pass');
                         } else {
-                            log(`❌ ${type}: 成功（但预期失败）`, 'fail');
+                            log(`❌ ${type}: 成功（但应失败）`, 'fail');
                         }
                     } else {
-                        log(`⚠️ ${type}: 响应不 OK`, 'fail');
+                        log(`⚠️ ${type}: 状态码 ${res.status}`, 'fail');
                     }
                 } catch (err) {
                     if (!shouldPass) {
                         log(`✅ ${type}: 失败（符合预期）: ${err.message}`, 'pass');
                     } else {
-                        log(`❌ ${type}: 失败（但预期成功）: ${err.message}`, 'fail');
+                        log(`❌ ${type}: 失败（但应成功）: ${err.message}`, 'fail');
                     }
                 }
             }
 
-            log('--- 测试 Unencoded-Digest（新头）---');
+            log('--- 测试 Unencoded-Digest ---');
             await testFetch('unencoded-match', true);
             await testFetch('unencoded-mismatch', false);
 
-            log('\n--- 测试 Identity-Digest（旧头）---');
+            log('\n--- 测试 Identity-Digest ---');
             await testFetch('identity-match', true);
             await testFetch('identity-mismatch', true);
 
-            log('\n--- 对照：无头 ---');
+            log('\n--- 无头对照 ---');
             await testFetch('none', true);
 
-            log('\n✅ 测试完成。如果 "Unencoded-Digest" 的匹配通过、不匹配失败，而 "Identity-Digest" 无论是否匹配都通过，则说明浏览器已采用新头。');
+            log('\n✅ 测试完成。请根据实际输出判断。');
         })();
     </script>
 </body>
